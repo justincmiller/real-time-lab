@@ -1,0 +1,35 @@
+# Build outputs
+/build/
+/cmake-build-*/
+CMakeUserPresets.json
+
+# CMake artifacts
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# VS Code
+.vscode/
+
+# STM32CubeIDE / Eclipse
+.project
+.cproject
+.settings/
+.metadata/
+.mxproject
+/Debug/
+/Release/
+
+# Compiled firmware
+*.elf
+*.hex
+*.bin
+*.map
+*.o
+*.obj
+*.d
+*.su
+
+# OS files
+.DS_Store
+Thumbs.db
