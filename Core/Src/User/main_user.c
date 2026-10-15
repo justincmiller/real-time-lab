@@ -21,6 +21,7 @@
 
 uint32_t SharedCounter = 0;
 
+static SemaphoreHandle_t mutex;
 
 /******************************************************************************
 ******************************************************************************/
@@ -34,10 +35,12 @@ static void vSenderTask( void *pvParameters )
 	{
 		/* The following set of operations is updating the SharedCounter
 		 after a long delay. */
+		xSemaphoreTake(mutex, portMAX_DELAY);
 		buffer = SharedCounter;
 		buffer++;
 		vTaskDelay(1000);
 		SharedCounter = buffer;
+		xSemaphoreGive(mutex);
 
 		// then, sending it to the USART.
 		sprintf(ibuff,"%ld\r\n",SharedCounter);
@@ -48,6 +51,8 @@ static void vSenderTask( void *pvParameters )
 
 void main_user(){
 	util_init();
+
+	mutex = xSemaphoreCreateMutex();
 
 	// this task will increment by 1.
 	xTaskCreate( vSenderTask, "Sender1", 1000, ( void * ) 1, 1, NULL );
