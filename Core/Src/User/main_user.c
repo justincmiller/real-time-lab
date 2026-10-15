@@ -21,6 +21,7 @@
 
 char main_string[50];
 uint32_t main_counter = 0;
+SemaphoreHandle_t button;
 
 /******************************************************************************
 This is a task handler that prints periodically.
@@ -51,6 +52,7 @@ static void task_led(void *params)
 	char ibuff[50];
 
 	do {
+		xSemaphoreTake(button, portMAX_DELAY);
 
 	}while(1);
 }
@@ -62,6 +64,7 @@ To be completed.
 ******************************************************************************/
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
 	if(GPIO_Pin == GPIO_PIN_13){
+		xSemaphoreGive(button);
 		print_str_ISR("Blue Button Pressed\r\n");
 		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 	}
