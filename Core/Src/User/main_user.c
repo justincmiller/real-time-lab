@@ -19,44 +19,69 @@
 #include "task.h"
 #include "semphr.h"
 
-uint32_t SharedCounter = 0;
-
+char main_string[50];
+uint32_t main_counter = 0;
 
 /******************************************************************************
+This is a task handler that prints periodically.
+No changes are required.
 ******************************************************************************/
-static void vSenderTask( void *pvParameters )
-{
-	uint32_t buffer =0;
-	char ibuff[50];
+static void main_task(void *param){
 
-
-	for( ;; )
-	{
-		/* The following set of operations is updating the SharedCounter
-		 after a long delay. */
-		buffer = SharedCounter;
-		buffer++;
-		vTaskDelay(1000);
-		SharedCounter = buffer;
-
-		// then, sending it to the USART.
-		sprintf(ibuff,"%ld\r\n",SharedCounter);
-		print_str(ibuff);
+	while(1){
+		print_str("Main task loop executing\r\n");
+		sprintf(main_string,"Main task iteration: 0x%08lx\r\n",main_counter++);
+		print_str(main_string);
+		vTaskDelay(1000/portTICK_RATE_MS);
 	}
 }
 
+/******************************************************************************
+This task handler needs to be completed.
+It should toggle the LED on a rising edge.  Use the call to
+"HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_A);
+And send a message to the console of the host computer to indicate
+that a new loop of the task_led has been run.
+The message should show the number of times it has been run.
+This task handler should not use any delays
+******************************************************************************/
+static void task_led(void *params)
+{
+	uint32_t LEDCount = 0;
+	char ibuff[50];
 
+	do {
+
+	}while(1);
+}
+
+
+/******************************************************************************
+This is the callback function for onboard blue button.
+To be completed.
+******************************************************************************/
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if(GPIO_Pin == GPIO_PIN_13){
+		print_str_ISR("Blue Button Pressed\r\n");
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+	}
+}
+
+/******************************************************************************
+main to be completed.
+Make sure that the buttons and interrupts are configured.
+Create a binary semaphore after initialization.
+Additionally to the main_task, if the semaphore is created, create a second
+task with the handler task_led.
+Don't forget to start the scheduler!
+******************************************************************************/
 void main_user(){
 	util_init();
 
-	// this task will increment by 1.
-	xTaskCreate( vSenderTask, "Sender1", 1000, ( void * ) 1, 1, NULL );
-
-	// so will this one.
-	xTaskCreate( vSenderTask, "Sender2", 1000, ( void * ) 1, 1, NULL );
+	xTaskCreate(main_task,"Main Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
 
 	vTaskStartScheduler();
 
-	while(1); // we should never reach here.
+	while(1);
 
 }
