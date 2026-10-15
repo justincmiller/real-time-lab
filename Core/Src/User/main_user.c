@@ -6,7 +6,6 @@
  */
 
 #include <stdio.h>
-#include <stdlib.h>
 
 //STM32 generated header files
 #include "main.h"
@@ -18,95 +17,66 @@
 //Required FreeRTOS header files
 #include "FreeRTOS.h"
 #include "task.h"
-#include "event_groups.h"
+#include "semphr.h"
 
 char main_string[50];
 uint32_t main_counter = 0;
 
-int taskcount = 0;
+/******************************************************************************
+This is a task handler that prints periodically.
+No changes are required.
+******************************************************************************/
+static void main_task(void *param){
 
-EventGroupHandle_t xEventGroup;
-
-static void PrintTaskID(void*params);
-
-static void main_task(void *param)
-{
-	char ibuff[50];
-	BaseType_t res = pdFAIL;
-	TaskHandle_t xHandle[50];
-
-	size_t val;
-	do {
-		print_str("Main task loop executing ");
-
+	while(1){
+		print_str("Main task loop executing\r\n");
 		sprintf(main_string,"Main task iteration: 0x%08lx\r\n",main_counter++);
 		print_str(main_string);
-
-		// creation of tasks
-		if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10) == GPIO_PIN_RESET){  // create
-
-			res = xTaskCreate(&PrintTaskID, (const char*)"subtask",
-						configMINIMAL_STACK_SIZE+100,
-						(void *) taskcount, tskIDLE_PRIORITY+2,
-						&xHandle[taskcount]);
-
-			if (res !=pdPASS){
-				sprintf(ibuff,"Failed creating new task %d \r\n",taskcount);
-				print_str(ibuff);
-			}
-			else{
-				sprintf(ibuff,"Created a new task %d \r\n",taskcount++);
-				print_str(ibuff);
-			}
-
-		} // deletion of tasks
-		else if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12) == GPIO_PIN_RESET && taskcount >0){ //delete
-			taskcount--;
-
-			vTaskDelete(xHandle[taskcount]);
-			sprintf(ibuff,"Deleted task new task %d \r\n",taskcount);
-			print_str(ibuff);
-		}
-
-		val = xPortGetFreeHeapSize() ;
-		sprintf(ibuff,"Size = %d Bytes\r\n",val);
-		print_str(ibuff);
-
-		// at the end of the loop, in this task, we reinitialize.
-		xEventGroupClearBits(xEventGroup, 0xFFFF ); // clears all bits
-		xEventGroupSetBits( xEventGroup,  1<<0);  // this is the ID for task 0.
-
-		vTaskDelay(1000 / portTICK_RATE_MS);
-
-	} while(1);
+		vTaskDelay(1000/portTICK_RATE_MS);
+	}
 }
 
 /******************************************************************************
+This task handler needs to be completed.
+It should toggle the LED on a rising edge.  Use the call to
+"HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_A);
+And send a message to the console of the host computer to indicate
+that a new loop of the task_led has been run.
+The message should show the number of times it has been run.
+This task handler should not use any delays
 ******************************************************************************/
-static void PrintTaskID(void*params){
+static void task_led(void *params)
+{
+	uint32_t LEDCount = 0;
 	char ibuff[50];
-	int IDval = (int) params;
 
-	do{
-		// we wait for the bits associated to the current task id to be set.
-		xEventGroupWaitBits( xEventGroup, 1<<IDval, pdTRUE, pdTRUE, portMAX_DELAY);
-
-		sprintf(ibuff,"Task %d printing \r\n", IDval);
-		print_str(ibuff);
-
-		// After we print, we enable the printing of the next task id.
-		xEventGroupSetBits( xEventGroup, 1<< (IDval+1));
-		vTaskDelay(rand()%1000);
+	do {
 
 	}while(1);
 }
 
 
+/******************************************************************************
+This is the callback function for onboard blue button.
+To be completed.
+******************************************************************************/
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if(GPIO_Pin == GPIO_PIN_13){
+		print_str_ISR("Blue Button Pressed\r\n");
+		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+	}
+}
+
+/******************************************************************************
+main to be completed.
+Make sure that the buttons and interrupts are configured.
+Create a binary semaphore after initialization.
+Additionally to the main_task, if the semaphore is created, create a second
+task with the handler task_led.
+Don't forget to start the scheduler!
+******************************************************************************/
 void main_user(){
 	util_init();
-
-	/* Before an event group can be used it must first be created. */
-	xEventGroup = xEventGroupCreate();
 
 	xTaskCreate(main_task,"Main Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
 
