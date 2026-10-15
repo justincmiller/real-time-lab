@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 
+#include <stdlib.h>
+#include <time.h>
 //STM32 generated header files
 #include "main.h"
 
@@ -18,8 +20,22 @@
 #include "task.h"
 #include "queue.h"
 
+uint32_t viewCount = 0;
+//#define SEND_
+
 QueueHandle_t xQueue;
 char receiver_string[] = "Received = 000\r\n";
+char debug_str[64];
+char debug_str2[64];
+
+void increment(int num)
+{
+	int buffer = 0;
+	buffer = viewCount;
+	buffer += num;
+	for(int i = 0; i <100000; i++);
+	viewCount = buffer;
+}
 
 /******************************************************************************
 ******************************************************************************/
@@ -27,18 +43,33 @@ static void vSenderTask( void *pvParameters )
 {
 	int32_t lValueToSend;
 	BaseType_t xStatus;
+	int seed = ((int32_t) pvParameters == 100) ? 12345: 67890;
+	srand(seed);
 
-
-	lValueToSend = ( int32_t ) pvParameters;
-
+	
+	
 	for( ;; )
 	{
+#ifdef SEND_
+		lValueToSend = ( int32_t ) pvParameters;
+		
 		xStatus = xQueueSendToBack( xQueue, &lValueToSend, 0 );
 		if( xStatus != pdPASS )
 		{
 			print_str( "Could not send to the queue.\r\n" );
 		}
-		vTaskDelay(50);
+#else
+		lValueToSend = rand() % 10000;
+
+		sprintf(debug_str2, "sending: %lu\r\n", lValueToSend);
+		print_str(debug_str2);
+		increment(lValueToSend);
+
+		sprintf(debug_str2, "%lu\r\n", viewCount);
+		print_str(debug_str2);
+#endif
+		
+		vTaskDelay(pdMS_TO_TICKS(100U));
 	}
 }
 
@@ -53,6 +84,7 @@ static void vReceiverTask( void *pvParameters )
 
 	for( ;; )
 	{
+#ifdef SEND_
 		/* Verify if queue is empty. */
 		if( uxQueueMessagesWaiting( xQueue ) != 0 )
 		{
@@ -74,6 +106,11 @@ static void vReceiverTask( void *pvParameters )
 			// Data was not received from the queue even after waiting
 			print_str( "Could not receive from the queue.\r\n" );
 		}
+#else
+			sprintf(debug_str, "%lu\r\n", viewCount);
+			print_str(debug_str);
+			vTaskDelay(500);
+#endif
 	}
 }
 
