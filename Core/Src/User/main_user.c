@@ -19,22 +19,24 @@
 #include "task.h"
 #include "semphr.h"
 
-char main_string[50];
-uint32_t main_counter = 0;
-SemaphoreHandle_t button;
+// Utility header
+#include "common.h"
+
+static SemaphoreHandle_t buttonSm = NULL;
 
 /******************************************************************************
 This is a task handler that prints periodically.
 No changes are required.
 ******************************************************************************/
-static void main_task(void *param){
+static void main_task(void *param) {
+	uint32_t main_counter = 0;
 
-	while(1){
-		print_str("Main task loop executing\r\n");
-		sprintf(main_string,"Main task iteration: 0x%08lx\r\n",main_counter++);
-		print_str(main_string);
-		vTaskDelay(1000/portTICK_RATE_MS);
-	}
+	while (1) {
+        print_fmt("Main task loop executing\r\n"
+			"Main task iteration: 0x%08lx\r\n", main_counter++);
+
+        vTaskDelay(DELAY_1S);
+    }
 }
 
 /******************************************************************************
@@ -46,15 +48,16 @@ that a new loop of the task_led has been run.
 The message should show the number of times it has been run.
 This task handler should not use any delays
 ******************************************************************************/
-static void task_led(void *params)
-{
+static void task_led(void *params) {
 	uint32_t LEDCount = 0;
-	char ibuff[50];
 
-	do {
-		xSemaphoreTake(button, portMAX_DELAY);
-
-	}while(1);
+	while (1) {
+		if (xSemaphoreTake(buttonSm, portMAX_DELAY) == pdTRUE) {
+			HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+			print_fmt(ANSI_BOLD ANSI_BR_GREEN "LED task loop executing\r\n"
+				"LED task iteration: 0x%08lx" ANSI_RESET "\r\n", LEDCount++);
+		}
+	}
 }
 
 
@@ -62,11 +65,11 @@ static void task_led(void *params)
 This is the callback function for onboard blue button.
 To be completed.
 ******************************************************************************/
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
-	if(GPIO_Pin == GPIO_PIN_13){
-		xSemaphoreGive(button);
-		print_str_ISR("Blue Button Pressed\r\n");
-		HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == GPIO_PIN_13 && buttonSm != NULL) {
+		BaseType_t woken = pdFALSE;
+		xSemaphoreGiveFromISR(buttonSm, &woken);
+		portYIELD_FROM_ISR(woken);
 	}
 }
 
@@ -78,13 +81,20 @@ Additionally to the main_task, if the semaphore is created, create a second
 task with the handler task_led.
 Don't forget to start the scheduler!
 ******************************************************************************/
-void main_user(){
+void main_user() {
 	util_init();
 
-	xTaskCreate(main_task,"Main Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
+	buttonSm = xSemaphoreCreateBinary();
+	if (buttonSm == NULL)
+		fatalError("Failed to create binary semaphore");
+
+	if (xTaskCreate(main_task, "Main Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL) != pdPASS)
+		fatalError("Failed to create main task");
+
+	if (xTaskCreate(task_led, "LED task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL) != pdPASS)
+		fatalError("Failed to create LED task");
 
 	vTaskStartScheduler();
 
-	while(1);
-
+	fatalError("Failed to start FreeRTOS scheduler");
 }
