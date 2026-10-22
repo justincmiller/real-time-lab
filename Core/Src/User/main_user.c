@@ -18,6 +18,19 @@
 
 #include "common.h"
 
+#define EVENT_SYNC 0
+#define BUG_FIX    0
+
+static const char *const colours[] = {
+    ANSI_BR_RED,
+    ANSI_BR_GREEN,
+    ANSI_BR_YELLOW,
+    ANSI_BR_BLUE,
+    ANSI_BR_MAGENTA,
+    ANSI_BR_CYAN
+};
+
+static const size_t colourCount = sizeof(colours) / sizeof(colours[0]);
 static EventGroupHandle_t xEventGroup = NULL;
 
 static void PrintTaskID(void *params);
@@ -32,6 +45,9 @@ static void main_task(void *param) {
 
         // Create a new task when Button A is pressed
         if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10) == GPIO_PIN_RESET) {
+#if BUG_FIX
+            xEventGroupClearBits(xEventGroup, 1U << taskcount);
+#endif
             BaseType_t result = xTaskCreate(PrintTaskID, "Subtask",
                 STACK_DEPTH, (void *)taskcount, BASE_PRIORITY, &xHandle[taskcount]);
 
@@ -64,8 +80,10 @@ static void PrintTaskID(void *params) {
     int IDval = (int)params;
 
     while (1) {
+#if EVENT_SYNC
         xEventGroupWaitBits(xEventGroup, 1U << IDval, pdTRUE, pdTRUE, portMAX_DELAY);
-        print_fmt(ANSI_BOLD ANSI_BR_GREEN, "Task %d printing" ANSI_RESET "\r\n", IDval);
+#endif
+        print_fmt(ANSI_BOLD "%s Task %d printing" ANSI_RESET "\r\n", colours[IDval % colourCount], IDval);
 
         // Allow the next task to execute
         xEventGroupSetBits(xEventGroup, 1U << (IDval + 1));
