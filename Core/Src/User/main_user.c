@@ -5,113 +5,85 @@
  *      Author: Andre Hendricks
  */
 
-#include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 
-//STM32 generated header files
 #include "main.h"
-
-//User generated header files
 #include "User/main_user.h"
 #include "User/util.h"
 
-//Required FreeRTOS header files
 #include "FreeRTOS.h"
 #include "task.h"
 #include "event_groups.h"
 
-char main_string[50];
-uint32_t main_counter = 0;
+#include "common.h"
 
-int taskcount = 0;
+static EventGroupHandle_t xEventGroup = NULL;
 
-EventGroupHandle_t xEventGroup;
+static void PrintTaskID(void *params);
 
-static void PrintTaskID(void*params);
+static void main_task(void *param) {
+    uint32_t main_counter = 0;
+    int taskcount = 0;
+    TaskHandle_t xHandle[50] = {0};
 
-static void main_task(void *param)
-{
-	char ibuff[50];
-	BaseType_t res = pdFAIL;
-	TaskHandle_t xHandle[50];
+    while (1) {
+        print_fmt("Main task iteration: 0x%08lx\r\n", main_counter++);
 
-	size_t val;
-	do {
-		print_str("Main task loop executing ");
+        // Create a new task when Button A is pressed
+        if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10) == GPIO_PIN_RESET) {
+            BaseType_t result = xTaskCreate(PrintTaskID, "Subtask",
+                STACK_DEPTH, (void *)taskcount, BASE_PRIORITY, &xHandle[taskcount]);
 
-		sprintf(main_string,"Main task iteration: 0x%08lx\r\n",main_counter++);
-		print_str(main_string);
+            if (result != pdPASS)
+                print_fmt("Failed creating new task %d\r\n", taskcount);
+            else
+                print_fmt("Created task %d\r\n", taskcount++);
+        }
 
-		// creation of tasks
-		if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_10) == GPIO_PIN_RESET){  // create
+        // Delete the newest task when Button B is pressed
+        else if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12) == GPIO_PIN_RESET && taskcount > 0) {
+            taskcount--;
+            vTaskDelete(xHandle[taskcount]);
+            print_fmt("Deleted task %d\r\n", taskcount);
+        }
 
-			res = xTaskCreate(&PrintTaskID, (const char*)"subtask",
-						configMINIMAL_STACK_SIZE+100,
-						(void *) taskcount, tskIDLE_PRIORITY+2,
-						&xHandle[taskcount]);
+        print_fmt("Size = %d Bytes\r\n", xPortGetFreeHeapSize());
 
-			if (res !=pdPASS){
-				sprintf(ibuff,"Failed creating new task %d \r\n",taskcount);
-				print_str(ibuff);
-			}
-			else{
-				sprintf(ibuff,"Created a new task %d \r\n",taskcount++);
-				print_str(ibuff);
-			}
+        // Reset synchronization for the next cycle
+        xEventGroupClearBits(xEventGroup, 0xFFFF);
+        xEventGroupSetBits(xEventGroup, 1U << 0);
 
-		} // deletion of tasks
-		else if(HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_12) == GPIO_PIN_RESET && taskcount >0){ //delete
-			taskcount--;
-
-			vTaskDelete(xHandle[taskcount]);
-			sprintf(ibuff,"Deleted task new task %d \r\n",taskcount);
-			print_str(ibuff);
-		}
-
-		val = xPortGetFreeHeapSize() ;
-		sprintf(ibuff,"Size = %d Bytes\r\n",val);
-		print_str(ibuff);
-
-		// at the end of the loop, in this task, we reinitialize.
-		xEventGroupClearBits(xEventGroup, 0xFFFF ); // clears all bits
-		xEventGroupSetBits( xEventGroup,  1<<0);  // this is the ID for task 0.
-
-		vTaskDelay(1000 / portTICK_RATE_MS);
-
-	} while(1);
+        vTaskDelay(DELAY_1S);
+    }
 }
 
 /******************************************************************************
 ******************************************************************************/
-static void PrintTaskID(void*params){
-	char ibuff[50];
-	int IDval = (int) params;
+static void PrintTaskID(void *params) {
+    int IDval = (int)params;
 
-	do{
-		// we wait for the bits associated to the current task id to be set.
-		xEventGroupWaitBits( xEventGroup, 1<<IDval, pdTRUE, pdTRUE, portMAX_DELAY);
+    while (1) {
+        xEventGroupWaitBits(xEventGroup, 1U << IDval, pdTRUE, pdTRUE, portMAX_DELAY);
+        print_fmt(ANSI_BOLD ANSI_BR_GREEN, "Task %d printing" ANSI_RESET "\r\n", IDval);
 
-		sprintf(ibuff,"Task %d printing \r\n", IDval);
-		print_str(ibuff);
-
-		// After we print, we enable the printing of the next task id.
-		xEventGroupSetBits( xEventGroup, 1<< (IDval+1));
-		vTaskDelay(rand()%1000);
-
-	}while(1);
+        // Allow the next task to execute
+        xEventGroupSetBits(xEventGroup, 1U << (IDval + 1));
+        vTaskDelay(rand() % 1000);
+    }
 }
 
+void main_user(void) {
+    util_init();
 
-void main_user(){
-	util_init();
+    xEventGroup = xEventGroupCreate();
+    if (xEventGroup == NULL)
+        fatalError("Failed to create event group");
 
-	/* Before an event group can be used it must first be created. */
-	xEventGroup = xEventGroupCreate();
+    if (xTaskCreate(main_task, "Main Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL) != pdPASS)
+        fatalError("Failed to create main task");
 
-	xTaskCreate(main_task,"Main Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
+    vTaskStartScheduler();
 
-	vTaskStartScheduler();
-
-	while(1);
-
+    fatalError("Failed to start scheduler");
 }
