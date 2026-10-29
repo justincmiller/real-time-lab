@@ -1,123 +1,96 @@
 /*
  * main_user.c
  *
- *  Created on: Aug 8, 2022
- *      Author: Andre Hendricks
+ *
  */
 
 #include <stdio.h>
 
+#include <stdlib.h>
+#include <time.h>
 //STM32 generated header files
 #include "main.h"
 
 //User generated header files
 #include "User/main_user.h"
 #include "User/util.h"
+#include "User/common.h"
 
 //Required FreeRTOS header files
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 
-#include "common.h"
+uint32_t viewCount = 0;
+//#define SEND_
 
-#define LED_A_PORT  (GPIOC)
-#define LED_B_PORT  (GPIOC)
-#define LED_OB_PORT (GPIOA)
+QueueHandle_t xQueue;
+char receiver_string[] = "Received = 000\r\n";
+char debug_str[64];
 
-#define BTN_A_PIN  (GPIO_PIN_10)
-#define BTN_B_PIN  (GPIO_PIN_12)
-#define BTN_OB_PIN (GPIO_PIN_13)
-
-#define LED_A_PIN  (GPIO_PIN_0)
-#define LED_B_PIN  (GPIO_PIN_1)
-#define LED_OB_PIN (GPIO_PIN_5)
-
-enum {
-	BTN_A = (1U << 0),
-	BTN_B = (1U << 1)
-};
-
-
-char main_string[50];
-uint32_t main_counter = 0;
-
-char task_string[50];
-uint32_t task_id = 0;
-
-volatile uint8_t triggers = 0;
-
-static void PrintTaskID(void *params) {
-	int *id = (int *)params;
-	do {
-		sprintf(task_string, "Task %lu is printing", *id);
-		print_str(task_string);
-		vTaskDelay(DELAY_1S);
-	} while (1);
+void increment(int num)
+{
+	int buffer = 0;
+	buffer = viewCount;
+	buffer += num;
+	for(int i = 0; i <100000; i++);
+	viewCount = buffer;
 }
 
-static void main_task(void *params) {
-	char ibuff[50];
-	TaskHandle_t xHandle[50];
-	/*Variable used to keep track of sub tasks created with button*/
+/******************************************************************************
+******************************************************************************/
+static void vSenderTask( void *pvParameters )
+{
+	uint32_t incrementValue;
+	int param = *(int*)(pvParameters);
+	int seed = 12345;
+	srand(seed);
 
-	size_t val;
+	for( ;; )
+	{
+		incrementValue = (uint32_t)(rand() % 100 + 1);;
 
-	do {
-		print_str("Main task loop executing ");
-
-		// Update hexadecimal 32-bit integer in string, and print it
-		sprintf(main_string, "Main task iteration: 0x%08x\r\n", (unsigned int)main_counter++);
-		print_str(main_string);
-
-		// Create new task if button A was pressed
-		if (triggers & BTN_A) {
-			if (xTaskCreate(&PrintTaskID, (const char*)"subtask", STACK_DEPTH,
-				&task_id, BASE_PRIORITY, &xHandle[task_id]) != pdPASS) {
-				sprintf(ibuff, "Failed creating new task %lu \r\n", task_id);
-				print_str(ibuff);
-			} else {
-				sprintf(ibuff, "Created a new task %lu \r\n", task_id);
-				print_str(ibuff);
-				task_id++;
-			}
-			triggers &= ~BTN_A;
-		// Delete new task if button B was pressed
-		} else if ((triggers & BTN_B) && task_id > 0) {
-			/*Decrement taskid counter*/
-			if (task_id > 0) task_id--;
-			vTaskDelete(xHandle[task_id]);
-			sprintf(ibuff, "Deleted task new task %lu \r\n", task_id);
-			print_str(ibuff);
-			triggers &= ~BTN_B;
-		}
-		val = xPortGetFreeHeapSize() ;
-		sprintf(ibuff, "Size = %d Bytes\r\n", val);
-		print_str(ibuff);
-		vTaskDelay(DELAY_1S);
-	} while (1);
-}
-
-void HAL_GPIO_EXTI_Callback (uint16_t GPIO_Pin) {
-	if (GPIO_Pin == BTN_A_PIN) {
-		triggers |= BTN_A;
-		print_str_ISR("A button pressed\r\n");
-		HAL_GPIO_TogglePin(LED_A_PORT, LED_A_PIN);
-	} else if (GPIO_Pin == BTN_B_PIN) {
-		triggers |= BTN_B;
-		print_str_ISR("B button pressed\r\n");
-		HAL_GPIO_TogglePin(LED_B_PORT, LED_B_PIN);
-	} else if (GPIO_Pin == BTN_OB_PIN) {
-		print_str_ISR("Onboard button pressed\r\n");
-		HAL_GPIO_TogglePin(LED_OB_PORT, LED_OB_PIN);
+		print_fmt("%s sender %d sending update: %lu" ANSI_RESET "\r\n", (param == 100) ? ANSI_RED : ANSI_BLUE, (param == 100) ? 1 : 2, incrementValue);
+		increment(incrementValue);
+		
+		vTaskDelay(pdMS_TO_TICKS(50U));
 	}
 }
 
-void main_user() {
+
+/******************************************************************************
+******************************************************************************/
+static void vReceiverTask( void *pvParameters )
+{
+
+	for( ;; )
+	{
+		sprintf(debug_str, "Current Total View Count: %lu\r\n", viewCount);
+		print_str(debug_str);
+		vTaskDelay(500);
+	}
+}
+
+
+uint32_t param1 = 100;
+uint32_t param2 = 200;
+
+
+void main_user(){
 	util_init();
+	print_fmt(ANSI_RESET "=====================STARTING YOUTUBE SERVER -- NO QUEUE======================\r\n");
 
-	xTaskCreate(main_task, "Main Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
+	// sender tasks.
+	xTaskCreate( vSenderTask, "Sender1", 1000, &param1, 1, NULL );
+	xTaskCreate( vSenderTask, "Sender2", 1000, &param2, 1, NULL );
 
+	// Receiver task
+	xTaskCreate( vReceiverTask, "Receiver", 1000, NULL, 2, NULL );
+
+	// Start the scheduler so the created tasks start executing.
 	vTaskStartScheduler();
+	
 
 	while(1);
+
 }
