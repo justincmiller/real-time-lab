@@ -73,6 +73,12 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     "Core/Src/User/main_user.c"
     "Core/Src/User/util.c"
+    "Core/Src/User/AcousticSensor.c"
+    "Core/Src/User/DepthSensor.c"
+    "Core/Src/User/Comm_Datalink.c"
+    "Core/Src/User/SensorController.c"
+    "Core/Src/User/SensorPlatform.c"
+    "Core/Src/User/USART_Driver.c"
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
