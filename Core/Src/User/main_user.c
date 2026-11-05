@@ -21,10 +21,11 @@
 
 #include "common.h"
 
+#define TogglePedestrianLight(x) (HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, (x)))
 enum Timers 
 {
-	TIMER_1, 
-	TIMER_2,
+	STOPLIGHT_TIMER, 
+	PEDESTRIAN_TIMER,
 	NUM_TIMERS
 };
 
@@ -32,14 +33,24 @@ enum StopLightStates
 {
 	STATE_GREEN,
 	STATE_ORANGE,
-	STATE_RED,
-	NUM_STATES
+	STATE_RED
 };
 
+enum pedestrianLightStates 
+{
+	STATE_OFF,
+	STATE_ON
+};
+
+
+static const TickType_t pedestrianTimerPeriod = pdMS_TO_TICKS(200);
 
 
 TimerHandle_t xTimers[NUM_TIMERS];
 
+volatile static enum StopLightStates StopLightContoller_State = STATE_GREEN;
+
+volatile static enum pedestrianLightStates pedestrianLight_state = STATE_ON;
 
 char main_string[50];
 uint32_t main_counter = 0;
@@ -47,9 +58,14 @@ uint32_t main_counter = 0;
 
 volatile uint8_t triggers = 0;
 
+void pedestrianLightBlink(TimerHandle_t xTimer)
+{
+	pedestrianLight_state = (pedestrianLight_state == STATE_ON) ? STATE_OFF : STATE_ON; 
+	TogglePedestrianLight((pedestrianLight_state == STATE_ON) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
 void StopLightController( TimerHandle_t xTimer)
 {
-	volatile static enum StopLightStates StopLightContoller_State = STATE_GREEN;
 	uint32_t TimerID;
 	TimerID = ( uint32_t ) pvTimerGetTimerID(xTimer);
 	if(StopLightContoller_State == STATE_GREEN)
@@ -57,6 +73,8 @@ void StopLightController( TimerHandle_t xTimer)
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_SET);
+		pedestrianLight_state = STATE_ON;
 		StopLightContoller_State = STATE_ORANGE;
 	}
 	else if(StopLightContoller_State == STATE_ORANGE)
@@ -64,15 +82,19 @@ void StopLightController( TimerHandle_t xTimer)
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_SET);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
+		xTimerStart(xTimers[PEDESTRIAN_TIMER], 0);
 		StopLightContoller_State = STATE_RED;
 	}
 	else if(StopLightContoller_State == STATE_RED)
 	{
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_RESET);
 		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_1, GPIO_PIN_RESET);
-		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_2, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOC, GPIO_PIN_3, GPIO_PIN_RESET);
+		xTimerStop(xTimers[PEDESTRIAN_TIMER], 0);
 		StopLightContoller_State = STATE_GREEN;
 	}
+	
 }
 
 static void main_task(void *params) {
@@ -88,8 +110,10 @@ static void main_task(void *params) {
 void main_user() {
 	util_init();
 
-	xTimers[TIMER_1] = xTimerCreate("Timer1", 3000, pdTRUE, (void * ) 0, StopLightController);
-	xTimerStart(xTimers[TIMER_1], 0);
+	xTimers[STOPLIGHT_TIMER] = xTimerCreate("Timer1", 3000, pdTRUE, (void * ) 0, StopLightController);
+	xTimerStart(xTimers[STOPLIGHT_TIMER], 0);
+
+	xTimers[PEDESTRIAN_TIMER] = xTimerCreate("Timer2", pedestrianTimerPeriod, pdTRUE, (void * ) 0, pedestrianLightBlink);
 
 	xTaskCreate(main_task, "Task 1", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
 
