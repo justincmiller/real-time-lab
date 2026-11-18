@@ -21,135 +21,148 @@
 #include "Timers.h"
 #include "semphr.h"
 
-QueueHandle_t Queue_Sensor_Data;
-QueueHandle_t Queue_HostPC_Data;
+const uint16_t T_ACOUSTIC_MS = 5000U;
+const uint16_t T_DEPTH_MS = 2000U;
+
+const TickType_t ACK_TIMEOUT = pdMS_TO_TICKS(2000U);
+const TickType_t POLL_INTERVAL = pdMS_TO_TICKS(10U);
+
+typedef enum {
+    ACK_MESSAGE = 1,
+    DATA_MESSAGE = 3
+} MessageType;
+
+typedef enum {
+    SYSTEM_INIT,
+    START_SENSORS,
+    PARSE_DATA,
+    DISABLE_SENSORS
+} ControllerState;
+
+typedef struct {
+    ControllerState state;
+    struct SensorStates sensors;
+    TickType_t ackTick;
+} SensorController;
+
+QueueHandle_t Queue_Sensor_Data = NULL;
+QueueHandle_t Queue_HostPC_Data = NULL;
 
 
-static void ResetMessageStruct(struct CommMessage* currentRxMessage){
-
+static void ResetMessageStruct(struct CommMessage* currentRxMessage) {
 	static const struct CommMessage EmptyMessage = {0};
 	*currentRxMessage = EmptyMessage;
 }
 
+// Set controller state and perform transistion behaviour
+static void setControllerState(SensorController *sc, ControllerState state) {
+    if (sc->state == state)
+        return;
+
+    sc->state = state;
+    
+    if (state == START_SENSORS)
+        sc->ackTick = xTaskGetTickCount();
+}
+
+// Send commands to enable both sensors
+static void startSensors(SensorController *sc) {
+    sc->sensors = (struct SensorStates){0};
+
+    send_sensorEnable_message(Acoustic, T_ACOUSTIC_MS);
+    send_sensorEnable_message(Depth, T_DEPTH_MS);
+
+    setControllerState(sc, START_SENSORS);
+    print_str("Enabling sensors\r\n");
+}
+
+// Process commands received from the host PC
+static void processCommand(SensorController *sc) {
+    enum HostPCCommands cmd;
+
+    if (xQueueReceive(Queue_HostPC_Data, &cmd, 0) != pdPASS)
+        return;
+
+    switch (cmd) {
+        case PC_Command_START:
+            if (sc->state == SYSTEM_INIT)
+                startSensors(sc);
+            break;
+        case PC_Command_RESET:
+            if (sc->state != SYSTEM_INIT)
+                setControllerState(sc, DISABLE_SENSORS);
+            break;
+        default:
+            break;
+    }
+}
+
+static void processAck(SensorController *sc, const struct CommMessage *msg) {
+    switch (msg->SensorID) {
+        case Acoustic:
+            sc->sensors.IsAcousticAck = true;
+            break;
+        case Depth:
+            sc->sensors.IsDepthAck = true;
+            break;
+        default:
+            break;
+    }
+}
+
+static void processData(SensorController *sc, const struct CommMessage *msg) {
+    switch (msg->SensorID) {
+        case Acoustic:
+            sc->sensors.AcousticData = msg->params;
+            print_fmt("Acoustic: %u\r\n", (unsigned)msg->params);
+            break;
+        case Depth:
+            sc->sensors.DepthData = msg->params;
+            print_fmt("Depth: %u\r\n", (unsigned)msg->params);
+            break;
+        default:
+            break;
+    }
+}
+
+static void processMessages(SensorController *sc) {
+    struct CommMessage msg;
+
+    while (xQueueReceive(Queue_Sensor_Data, &msg, 0) == pdPASS) {
+        if (!msg.IsMessageReady || !msg.IsCheckSumValid)
+            continue;
+
+        switch (sc->state) {
+            case START_SENSORS:
+                if (msg.messageId == ACK_MESSAGE)
+                    processAck(sc, &msg);
+                break;
+
+            case PARSE_DATA:
+                if (msg.messageId == DATA_MESSAGE)
+                    processData(sc, &msg);
+                break;
+
+            default:
+                // Discard messages in inactive states.
+                break;
+        }
+    }
+}
+
+static void retrySensorEnable(SensorController *sc) {
+
+}
+
+
 /******************************************************************************
 This task is created from the main.
 ******************************************************************************/
-
-typedef enum {
-    CONTROLLER_INIT,
-    CONTROLLER_START_SENSORS,
-    CONTROLLER_PARSE_DATA,
-    CONTROLLER_DISABLE_SENSORS
-} ControllerState;
-
 void SensorControllerTask(void *params) {
     (void)params;
 
-    const uint16_t ACOUSTIC_PERIOD_MS = 5000U;
-    const uint16_t DEPTH_PERIOD_MS = 2000U;
-
-    const TickType_t ACK_TIMEOUT = pdMS_TO_TICKS(2000U);
-    const TickType_t POLL_PERIOD = pdMS_TO_TICKS(10U);
-
-    ControllerState state = CONTROLLER_INIT;
-    struct SensorStates sensors = {0};
-    struct CommMessage message;
-    enum HostPCCommands command;
-    TickType_t startTick = 0;
-    char buffer[64];
-
     while(1) {
-        // Receive tasks create these queues at startup.
-        if (Queue_HostPC_Data == NULL || Queue_Sensor_Data == NULL) {
-            vTaskDelay(POLL_PERIOD);
-            continue;
-        }
-
-        // Process a command from the host PC, if available.
-        if (xQueueReceive(Queue_HostPC_Data, &command, 0) == pdPASS) {
-            if (command == PC_Command_START && state == CONTROLLER_INIT) {
-                sensors = (struct SensorStates){0};
-                send_sensorEnable_message(Acoustic, ACOUSTIC_PERIOD_MS);
-                send_sensorEnable_message(Depth, DEPTH_PERIOD_MS);
-                startTick = xTaskGetTickCount();
-                state = CONTROLLER_START_SENSORS;
-                print_str("Enabling sensors\r\n");
-            } else if (command == PC_Command_RESET && state != CONTROLLER_INIT) {
-                state = CONTROLLER_DISABLE_SENSORS;
-            }
-        }
-
-        // Process messages received from the sensor platform.
-        if (state == CONTROLLER_START_SENSORS || state == CONTROLLER_PARSE_DATA) {
-            while (xQueueReceive(Queue_Sensor_Data, &message, 0) == pdPASS) {
-                if (!message.IsMessageReady || !message.IsCheckSumValid)
-                    continue;
-
-                // Track sensor enable acknowledgements.
-                if (state == CONTROLLER_START_SENSORS && message.messageId == 1) {
-                    if (message.SensorID == Acoustic) {
-                        sensors.IsAcousticAck = true;
-                    } else if (message.SensorID == Depth) {
-                        sensors.IsDepthAck = true;
-                    }
-                }
-
-                // Forward measurements to the host PC.
-                if (state == CONTROLLER_PARSE_DATA && message.messageId == 3) {
-                    if (message.SensorID == Acoustic) {
-                        sensors.AcousticData = message.params;
-                        snprintf(buffer, sizeof(buffer), "Acoustic: %u\r\n", (unsigned)sensors.AcousticData);
-                        print_str(buffer);
-                    } else if (message.SensorID == Depth) {
-                        sensors.DepthData = message.params;
-                        snprintf(buffer, sizeof(buffer), "Depth: %u\r\n", (unsigned)sensors.DepthData);
-                        print_str(buffer);
-                    }
-                }
-            }
-        } else {
-            // Discard messages outside active states.
-            while (xQueueReceive(Queue_Sensor_Data, &message, 0) == pdPASS);
-        }
-
-        switch (state) {
-        case CONTROLLER_INIT:
-            // Wait for the START command.
-            break;
-
-        case CONTROLLER_START_SENSORS:
-            if ((TickType_t)(xTaskGetTickCount() - startTick) >= ACK_TIMEOUT) {
-                if (sensors.IsAcousticAck && sensors.IsDepthAck) {
-                    state = CONTROLLER_PARSE_DATA;
-                    print_str("Sensors enabled\r\n");
-                } else {
-                    // Retry only the unacknowledged sensors.
-                    if (!sensors.IsAcousticAck)
-                        send_sensorEnable_message(Acoustic, ACOUSTIC_PERIOD_MS);
-
-                    if (!sensors.IsDepthAck)
-                        send_sensorEnable_message(Depth, DEPTH_PERIOD_MS);
-
-                    startTick = xTaskGetTickCount();
-                    print_str("Retrying sensor enable\r\n");
-                }
-            }
-            break;
-
-        case CONTROLLER_PARSE_DATA:
-            // Measurements are handled above.
-            break;
-
-        case CONTROLLER_DISABLE_SENSORS:
-            send_sensorReset_message();
-            sensors = (struct SensorStates){0};
-
-            print_str("Sensors disabled\r\n");
-            state = CONTROLLER_INIT;
-            break;
-        }
-
-        vTaskDelay(POLL_PERIOD);
+        vTaskDelay(POLL_INTERVAL);
     }
 }
 
@@ -160,7 +173,7 @@ void SensorControllerTask(void *params) {
  * This task reads the queue of characters from the Sensor Platform when available
  * It then sends the processed data to the Sensor Controller Task
  */
-void SensorPlatform_RX_Task(){
+void SensorPlatform_RX_Task(void* params){
 	struct CommMessage currentRxMessage = {0};
 	Queue_Sensor_Data = xQueueCreate(80, sizeof(struct CommMessage));
 
@@ -183,7 +196,7 @@ void SensorPlatform_RX_Task(){
  * This task reads the queue of characters from the Host PC when available
  * It then sends the processed data to the Sensor Controller Task
  */
-void HostPC_RX_Task(){
+void HostPC_RX_Task(void* params){
 
 	enum HostPCCommands HostPCCommand = PC_Command_NONE;
 

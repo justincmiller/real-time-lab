@@ -18,7 +18,6 @@
 #include "semphr.h"
 
 static void ResetMessageStruct(struct CommMessage* currentRxMessage){
-
 	static const struct CommMessage EmptyMessage = {0};
 	*currentRxMessage = EmptyMessage;
 }

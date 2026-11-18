@@ -27,8 +27,8 @@
 #define SENSORCONTROLLER_MODE 1
 
 //User must state the mode this code will run in. SENSORPLATFORM_MODE or SENSORCONTROLLER_MODE
-#define CODE_MODE SENSORPLATFORM_MODE
-//#define CODE_MODE SENSORCONTROLLER_MODE
+//#define CODE_MODE SENSORPLATFORM_MODE
+#define CODE_MODE SENSORCONTROLLER_MODE
 void main_user(){
 	util_init();
 
