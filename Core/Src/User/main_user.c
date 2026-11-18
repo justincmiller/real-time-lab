@@ -42,8 +42,8 @@ enum pedestrianLightStates
 	STATE_ON
 };
 
-
-static const TickType_t pedestrianTimerPeriod = pdMS_TO_TICKS(200);
+// Set timer period to 100ms so that the light toggles 10 times a second, leading to a 5Hz blinking light.
+static const TickType_t pedestrianTimerPeriod = pdMS_TO_TICKS(100);
 
 
 TimerHandle_t xTimers[NUM_TIMERS];
@@ -55,8 +55,6 @@ volatile static enum pedestrianLightStates pedestrianLight_state = STATE_ON;
 char main_string[50];
 uint32_t main_counter = 0;
 
-
-volatile uint8_t triggers = 0;
 
 void pedestrianLightBlink(TimerHandle_t xTimer)
 {
