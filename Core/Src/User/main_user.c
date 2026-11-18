@@ -27,29 +27,25 @@
 #define SENSORCONTROLLER_MODE 1
 
 //User must state the mode this code will run in. SENSORPLATFORM_MODE or SENSORCONTROLLER_MODE
-//#define CODE_MODE SENSORPLATFORM_MODE
-#define CODE_MODE SENSORCONTROLLER_MODE
+#define CODE_MODE SENSORPLATFORM_MODE
+//#define CODE_MODE SENSORCONTROLLER_MODE
+
 void main_user(){
 	util_init();
 
 	initialize_sensor_datalink();
-
 #if CODE_MODE == SENSORCONTROLLER_MODE
 	initialize_hostPC_datalink();
 #endif
 
 #if CODE_MODE == SENSORCONTROLLER_MODE
-	xTaskCreate(HostPC_RX_Task,"HostPC_RX_Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
-
-	xTaskCreate(SensorPlatform_RX_Task,"SensorPlatform_RX_Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
-
-	xTaskCreate(SensorControllerTask,"Sensor_Controller_Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
+	xTaskCreate(HostPC_RX_Task, "HostPC_RX_Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
+	xTaskCreate(SensorPlatform_RX_Task, "SensorPlatform_RX_Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
+	xTaskCreate(SensorControllerTask, "Sensor_Controller_Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
 #elif CODE_MODE == SENSORPLATFORM_MODE
-	xTaskCreate(SensorPlatformTask,"Sensor_Platform_Task", configMINIMAL_STACK_SIZE + 100, NULL, tskIDLE_PRIORITY + 2, NULL);
+	xTaskCreate(SensorPlatformTask, "Sensor_Platform_Task", STACK_DEPTH, NULL, BASE_PRIORITY, NULL);
 #endif
 	vTaskStartScheduler();
 
-	while(1);
-
+	while (1);
 }
-
